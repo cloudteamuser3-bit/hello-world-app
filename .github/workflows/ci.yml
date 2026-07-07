@@ -1,0 +1,88 @@
+name: CI
+
+# THIN CI / THICK SCRIPTS: every real step below is a one-line call into
+# scripts/. Porting this file to GitLab CI, Jenkins, etc. means rewriting
+# this YAML's structure (triggers, job graph, secret injection) - it does
+# NOT mean re-deriving any logic, because there isn't any logic here to
+# re-derive. Only ONE step in this whole file is a genuine GitHub-specific
+# seam - it's marked below.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: [self-hosted, linux, gcp]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements-dev.txt
+      - run: ./scripts/lint.sh
+
+  test:
+    runs-on: [self-hosted, linux, gcp]
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements-dev.txt
+      - run: ./scripts/test.sh
+
+  build-and-push:
+    runs-on: [self-hosted, linux, gcp]
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    outputs:
+      image_tag: ${{ steps.build.outputs.image_tag }}
+      image_digest: ${{ steps.build.outputs.image_digest }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: pip install --break-system-packages --quiet pyyaml
+      - name: Build and push
+        id: build
+        run: ./scripts/build_and_push.sh "${GITHUB_SHA}" | tee -a "$GITHUB_OUTPUT"
+
+  update-dev-environment:
+    runs-on: [self-hosted, linux, gcp]
+    needs: build-and-push
+    steps:
+      - uses: actions/checkout@v4
+      - run: pip install --break-system-packages --quiet pyyaml
+
+      # ---- PLATFORM-SPECIFIC SEAM ----
+      # This is the one step in the entire repo that's genuinely GitHub-only:
+      # minting a scoped token from a GitHub App installation. On GitLab
+      # this becomes a Project/Group Access Token pulled from a CI variable
+      # instead - a one-step swap, since scripts/update_environment.sh
+      # downstream only ever expects a plain token string in $VCS_TOKEN.
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.PROMOTION_APP_ID }}
+          private-key: ${{ secrets.PROMOTION_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: hello-world-environments
+      # ---- END SEAM ----
+
+      - name: Load config
+        run: python3 scripts/read_config.py >> "$GITHUB_ENV"
+
+      - name: Update environments repo
+        env:
+          VCS_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          ./scripts/update_environment.sh \
+            "${{ needs.build-and-push.outputs.image_tag }}" \
+            "${{ needs.build-and-push.outputs.image_digest }}" \
+            "${GITHUB_SHA}"
