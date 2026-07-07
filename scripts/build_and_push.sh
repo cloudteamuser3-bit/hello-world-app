@@ -14,14 +14,14 @@ eval "$(python3 "$(dirname "$0")/read_config.py")"
 IMAGE="${REGION}-docker.pkg.dev/${GCP_PROJECT_ID}/${AR_REPOSITORY}/${IMAGE_NAME}"
 
 echo "==> Configuring Docker for Artifact Registry" >&2
-gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
+gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet >&2
 
 echo "==> Building ${IMAGE}:${IMAGE_TAG}" >&2
-docker build --tag "${IMAGE}:${IMAGE_TAG}" --tag "${IMAGE}:latest" .
+docker build --tag "${IMAGE}:${IMAGE_TAG}" --tag "${IMAGE}:latest" . >&2
 
 echo "==> Pushing" >&2
-docker push "${IMAGE}:${IMAGE_TAG}"
-docker push "${IMAGE}:latest"
+docker push "${IMAGE}:${IMAGE_TAG}" >&2
+docker push "${IMAGE}:latest" >&2
 
 DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "${IMAGE}:${IMAGE_TAG}" | cut -d'@' -f2)
 
