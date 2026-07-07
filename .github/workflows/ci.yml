@@ -21,6 +21,7 @@ jobs:
     runs-on: [self-hosted, linux, gcp]
     steps:
       - uses: actions/checkout@v4
+      - run: echo "/home/runner/.local/bin" >> $GITHUB_PATH
       - run: pip install --break-system-packages -r requirements-dev.txt
       - run: ./scripts/lint.sh
 
@@ -29,6 +30,7 @@ jobs:
     needs: lint
     steps:
       - uses: actions/checkout@v4
+      - run: echo "/home/runner/.local/bin" >> $GITHUB_PATH
       - run: pip install --break-system-packages -r requirements-dev.txt
       - run: ./scripts/test.sh
 
